@@ -219,11 +219,17 @@ function updateAuditUI(audit) {
   if (!audit) return;
   currentAudit = audit;
 
-  const shareStr = formatINR(audit.share_balance);
-  const stPrinStr = formatINR(audit.st_principal);
-  const ltPrinStr = formatINR(audit.lt_principal);
-  const stIntStr = formatINR(audit.st_interest);
-  const ltIntStr = formatINR(audit.lt_interest);
+  const shareVal = (audit.share_balance !== undefined) ? audit.share_balance : (audit.total_share_balance || 0);
+  const stPrinVal = (audit.st_principal !== undefined) ? audit.st_principal : (audit.stloans_principal || 0);
+  const ltPrinVal = (audit.lt_principal !== undefined) ? audit.lt_principal : 0;
+  const stIntVal = (audit.st_interest !== undefined) ? audit.st_interest : (audit.stloans_interest || 0);
+  const ltIntVal = (audit.lt_interest !== undefined) ? audit.lt_interest : 0;
+
+  const shareStr = formatINR(shareVal);
+  const stPrinStr = formatINR(stPrinVal);
+  const ltPrinStr = formatINR(ltPrinVal);
+  const stIntStr = formatINR(stIntVal);
+  const ltIntStr = formatINR(ltIntVal);
 
   // 1. Dashboard Elements
   const dashShare = document.getElementById('dashShareBalance');

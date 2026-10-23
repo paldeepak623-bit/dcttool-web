@@ -112,70 +112,100 @@ def upload_file():
     }
 
     # Membership sheet
-    if "Membership" in wb.sheetnames:
+    mem_sheet = None
+    for name in ["Membership", "Memberships", "Member"]:
+        if name in wb.sheetnames:
+            mem_sheet = wb[name]
+            break
+    if mem_sheet:
         audit["has_membership"] = True
-        m_ws = wb["Membership"]
-        audit["membership_count"] = count_data_rows(m_ws)
+        audit["membership_count"] = count_data_rows(mem_sheet)
         audit["share_members_count"] = audit["membership_count"]
+        m_hdrs = header_map(mem_sheet)
+        s_col = None
+        for cand in ["ShareBalance", "Share Balance", "Share Amount", "Share_Balance", "Share", "ShareContribution", "ShareCapital"]:
+            if cand in m_hdrs:
+                s_col = m_hdrs[cand]
+                break
+        tot_share = 0.0
+        if s_col:
+            for r in range(HEADER_ROW + 1, mem_sheet.max_row + 1):
+                val = to_float(mem_sheet.cell(r, s_col).value)
+                if val is not None:
+                    tot_share += abs(val)
+        audit["share_balance"] = round(tot_share, 2)
+        audit["total_share_balance"] = round(tot_share, 2)
 
     # ShortTermLoans sheet
-    if "ShortTermLoans" in wb.sheetnames:
-        st_ws = wb["ShortTermLoans"]
+    st_sheet = None
+    for name in ["ShortTermLoans", "Short Term Loans", "Shorts terms loans", "ShortTermLoan", "STLoans", "ST Loans"]:
+        if name in wb.sheetnames:
+            st_sheet = wb[name]
+            break
+    if st_sheet:
         audit["has_stloans"] = True
-        audit["stloans_count"] = count_data_rows(st_ws)
-        hdrs = header_map(st_ws)
-        p_col = hdrs.get("OutstandingPrincipal")
-        i_col = hdrs.get("OutstandingInterest")
+        audit["stloans_count"] = count_data_rows(st_sheet)
+        hdrs = header_map(st_sheet)
+        p_col = hdrs.get("OutstandingPrincipal") or hdrs.get("Outstanding Principal") or hdrs.get("SanctionedAmount")
+        i_col = hdrs.get("OutstandingInterest") or hdrs.get("Outstanding Interest") or hdrs.get("Interest")
         tot_p = 0.0
         tot_i = 0.0
-        for r in range(HEADER_ROW + 1, st_ws.max_row + 1):
+        for r in range(HEADER_ROW + 1, st_sheet.max_row + 1):
             if p_col:
-                tot_p += abs(to_float(st_ws.cell(r, p_col).value) or 0.0)
+                tot_p += abs(to_float(st_sheet.cell(r, p_col).value) or 0.0)
             if i_col:
-                tot_i += abs(to_float(st_ws.cell(r, i_col).value) or 0.0)
+                tot_i += abs(to_float(st_sheet.cell(r, i_col).value) or 0.0)
         audit["stloans_principal"] = round(tot_p, 2)
+        audit["st_principal"] = round(tot_p, 2)
         audit["stloans_interest"] = round(tot_i, 2)
+        audit["st_interest"] = round(tot_i, 2)
 
     # LoanTransaction sheet
-    lt_sheet_name = None
-    for name in ["LoanTransaction", "LoanTransactions", "OtherLoanTransactions", "ShortTermLoans_To_LT"]:
+    lt_sheet = None
+    for name in ["LoanTransaction", "LoanTransactions", "OtherLoanTransactions", "ShortTermLoans_To_LT", "Loan Transaction"]:
         if name in wb.sheetnames:
-            lt_sheet_name = name
+            lt_sheet = wb[name]
             break
 
-    if lt_sheet_name:
-        lt_ws = wb[lt_sheet_name]
+    if lt_sheet:
         audit["has_lt"] = True
-        audit["lt_count"] = count_data_rows(lt_ws)
-        l_hdrs = header_map(lt_ws)
-        lp_col = l_hdrs.get("BalancePrincipal")
-        li_col = l_hdrs.get("BalanceInterest")
+        audit["lt_count"] = count_data_rows(lt_sheet)
+        l_hdrs = header_map(lt_sheet)
+        lp_col = l_hdrs.get("BalancePrincipal") or l_hdrs.get("Balance Principal")
+        li_col = l_hdrs.get("BalanceInterest") or l_hdrs.get("Balance Interest")
         lt_tot_p = 0.0
         lt_tot_i = 0.0
-        for r in range(HEADER_ROW + 1, lt_ws.max_row + 1):
+        for r in range(HEADER_ROW + 1, lt_sheet.max_row + 1):
             if lp_col:
-                lt_tot_p += abs(to_float(lt_ws.cell(r, lp_col).value) or 0.0)
+                lt_tot_p += abs(to_float(lt_sheet.cell(r, lp_col).value) or 0.0)
             if li_col:
-                lt_tot_i += abs(to_float(lt_ws.cell(r, li_col).value) or 0.0)
+                lt_tot_i += abs(to_float(lt_sheet.cell(r, li_col).value) or 0.0)
         audit["lt_principal"] = round(lt_tot_p, 2)
         audit["lt_interest"] = round(lt_tot_i, 2)
 
     # LandDetails sheet
-    for name in ["LandDetails", "Land Details"]:
+    for name in ["LandDetails", "Land Details", "Land"]:
         if name in wb.sheetnames:
             audit["has_land"] = True
             audit["land_count"] = count_data_rows(wb[name])
             break
 
     # Savings sheet
-    if "Savings" in wb.sheetnames:
-        audit["has_savings"] = True
-        audit["savings_count"] = count_data_rows(wb["Savings"])
+    for name in ["Savings", "SavingsAccounts", "SavingsAccount"]:
+        if name in wb.sheetnames:
+            audit["has_savings"] = True
+            audit["savings_count"] = count_data_rows(wb[name])
+            break
 
     # Reconciliation
+    st_p = audit.get("st_principal", audit.get("stloans_principal", 0.0))
+    lt_p = audit.get("lt_principal", 0.0)
+    st_i = audit.get("st_interest", audit.get("stloans_interest", 0.0))
+    lt_i = audit.get("lt_interest", 0.0)
+
     if audit["has_stloans"] and audit["has_lt"]:
-        audit["principal_match"] = (abs(audit["stloans_principal"] - audit["lt_principal"]) < 0.01)
-        audit["interest_match"] = (abs(audit["stloans_interest"] - audit["lt_interest"]) < 0.01)
+        audit["principal_match"] = (abs(st_p - lt_p) < 0.01)
+        audit["interest_match"] = (abs(st_i - lt_i) < 0.01)
     else:
         audit["principal_match"] = True
         audit["interest_match"] = True
