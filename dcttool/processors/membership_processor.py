@@ -82,19 +82,41 @@ class MembershipProcessorError(Exception):
 
 
 def is_na(value: Any) -> bool:
-    if value is None:
+    if value is None or isinstance(value, (int, float, bool)):
         return True
     text = str(value).strip().upper()
-    return text in {"", "NA", "N/A", "N.A.", "N.A", "-", "NIL", "NONE", "NULL"}
+    return text in {
+        "", "0", "00", "000", "0.0", "NA", "N/A", "N.A.", "N.A",
+        "-", "--", "---", ".", "..", "...", "?", "??", "NIL", "NONE",
+        "NULL", "UNKNOWN", "NOT AVAILABLE"
+    }
+
+
+def is_valid_name(value: Any) -> bool:
+    if is_na(value):
+        return False
+    text = str(value).strip()
+    # Check for any digits
+    if any(ch.isdigit() for ch in text):
+        return False
+    # Check for minimum alphabetic characters (at least 2 letters, rejecting single chars like 'A')
+    letters = [ch for ch in text if ch.isalpha()]
+    if len(letters) < 2:
+        return False
+    return True
 
 
 def clean_person_name(value: Any) -> str | None:
-    if is_na(value):
+    if not is_valid_name(value):
         return None
     trimmed = proper_trim(value)
-    if trimmed is None or is_na(trimmed):
+    if not trimmed or not is_valid_name(trimmed):
         return None
-    return str(trimmed)
+    cleaned = re.sub(r'[^a-zA-Z\s\.]', ' ', str(trimmed))
+    cleaned = " ".join(cleaned.split()).strip()
+    if len([ch for ch in cleaned if ch.isalpha()]) < 2:
+        return None
+    return cleaned.title()
 
 
 def calc_age_years(dob: date | None, admission: date | None) -> int | None:
@@ -585,16 +607,28 @@ def process_membership_sheet(
             if on_status and callable(on_status):
                 on_status(f"[OK] Low Share Filter: {len(rows_to_delete_set)} inactive member(s) (share <= Rs. 4) removed. {kept_low_share} retained with active loan/land/savings.")
 
-    # 1. Pre-scan for valid father names to build the replacement pool
+    # 1. Pre-scan for valid father names and member names to build replacement pools
     names_pool: list[str] = []
+    member_names_pool: list[str] = []
+
     father_col_idx = headers.get("FatherName")
     if father_col_idx:
         for r in range(HEADER_ROW + 1, last_row + 1):
             val = clean_person_name(ws.cell(r, father_col_idx).value)
-            if val and len(val) > 2 and val not in names_pool:
+            if val and len(val) >= 2 and val not in names_pool:
                 names_pool.append(val)
+
+    mem_name_col_idx = headers.get("MemberName")
+    if mem_name_col_idx:
+        for r in range(HEADER_ROW + 1, last_row + 1):
+            val = clean_person_name(ws.cell(r, mem_name_col_idx).value)
+            if val and len(val) >= 2 and val not in member_names_pool:
+                member_names_pool.append(val)
+
     if not names_pool:
-        names_pool = ["Ram Kumar", "Shiv Charan", "Om Prakash", "Rajesh Kumar", "Suresh Chandra"]
+        names_pool = ["Ram Kumar", "Shiv Charan", "Om Prakash", "Rajesh Kumar", "Suresh Chandra", "Mahendra Singh", "Dinesh Kumar", "Ramesh Chandra"]
+    if not member_names_pool:
+        member_names_pool = names_pool
 
     # Identify regional column names to blank out
     regional_col_names = [name for name in headers if "regional" in name.lower()]
@@ -720,14 +754,23 @@ def process_membership_sheet(
         for reg_col in regional_col_names:
             _set_cell(ws, row, headers, reg_col, None)
 
+        # Clean and sanitize MemberName, MemberSurName, MiddleName
+        raw_m_name = _cell_text(ws, row, headers, "MemberName")
+        member_name = clean_person_name(raw_m_name)
+        if not member_name:
+            member_name = rng.choice(member_names_pool)
+        _set_cell(ws, row, headers, "MemberName", member_name)
+
+        surname = clean_person_name(_cell_text(ws, row, headers, "MemberSurName"))
+        middle = clean_person_name(_cell_text(ws, row, headers, "MiddleName"))
+        _set_cell(ws, row, headers, "MemberSurName", surname)
+        _set_cell(ws, row, headers, "MiddleName", middle)
+
         # Rule 8: Community and Caste resolution
         # - If Hindu -> Community="Hindu", Caste is one of the 8 approved Hindu castes (never Minorities)
         # - If Muslim -> Community="Muslim", Caste is ONLY "Minorities"
         existing_comm = _cell_text(ws, row, headers, "CommunityDescription")
         existing_caste = _cell_text(ws, row, headers, "CasteDescription")
-        member_name = _cell_text(ws, row, headers, "MemberName")
-        surname = _cell_text(ws, row, headers, "MemberSurName")
-        middle = _cell_text(ws, row, headers, "MiddleName")
 
         community, caste = resolve_community_and_caste(
             existing_comm,
