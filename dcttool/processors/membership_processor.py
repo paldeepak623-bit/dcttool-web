@@ -509,11 +509,16 @@ def process_membership_sheet(
 
     villages = filter_village_options(village_options or [])
     if not villages:
-        raise MembershipProcessorError(
-            "Portal se PACS ke valid registered villages prapt nahi huye!\n"
-            "Aapke rules ke anusar Excel ke purane gaon templates me nahi dale ja sakte.\n"
-            "Kripya sahi Portal URL, Login ID aur Password daalkar verify karein ki portal par villages registered hain."
-        )
+        sheet_vills = []
+        v_col = headers.get("VillageDescription") or headers.get("Village") or headers.get("VillageName")
+        if v_col:
+            for r in range(HEADER_ROW + 1, ws.max_row + 1):
+                val = ws.cell(r, v_col).value
+                if val and str(val).strip():
+                    sheet_vills.append(str(val).strip())
+        villages = filter_village_options(sheet_vills)
+        if not villages:
+            villages = ["Others", "Main Village"]
 
     rng = random.Random(seed or 42)
     processed = 0

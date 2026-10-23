@@ -58,7 +58,7 @@ def normalize_url(url: str) -> str:
 
 
 class UnitePortalClient:
-    def __init__(self, base_url: str, timeout: int = 25) -> None:
+    def __init__(self, base_url: str, timeout: int = 4) -> None:
         self.base_url = normalize_url(base_url)
         self.timeout = timeout
         self.session = requests.Session()
