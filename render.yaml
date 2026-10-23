@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: dcttool-cloud
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn server:app
+    plan: free
+    autoDeploy: true
