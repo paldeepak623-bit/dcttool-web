@@ -40,7 +40,7 @@ def fetch_portal_session(
 
     district = district_desc.strip()
     if not district:
-        raise UnitePortalError("District is required for portal village mapping.")
+        district = "LAKHIMPUR KHERI"
 
     def status(msg: str) -> None:
         if on_status:
