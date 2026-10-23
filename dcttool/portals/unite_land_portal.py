@@ -9,7 +9,11 @@ from dataclasses import dataclass, field
 from typing import Callable
 from urllib.parse import urlparse
 
-from playwright.sync_api import Page, sync_playwright
+try:
+    from playwright.sync_api import Page, sync_playwright
+except ImportError:
+    Page = None
+    sync_playwright = None
 
 USER_SEL = "#user"
 PASS_SEL = "#pwd"

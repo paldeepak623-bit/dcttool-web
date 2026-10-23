@@ -13,8 +13,7 @@ import openpyxl
 from openpyxl.workbook.workbook import Workbook
 
 from dcttool.portals.unite_browser import fetch_portal_session
-from dcttool.portals.unite_land_portal import LandPortalData, UniteLandPortalError
-from dcttool.portals.unite_portal import UnitePortalError
+from dcttool.portals.unite_portal import LandPortalData, UnitePortalError, UnitePortalError as UniteLandPortalError
 from dcttool.processors.cross_sheet import build_st_crop_by_loan, collect_loan_admissions, header_map, normalize_admission, to_float, HEADER_ROW
 from dcttool.processors.land_processor import LandProcessorError, process_land_sheet
 from dcttool.processors.loan_processor import LoanProcessorError, process_loan_sheet, convert_stloans_to_loan_transaction

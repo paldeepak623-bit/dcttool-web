@@ -4,8 +4,12 @@ Standalone file picker helper that executes safely on its own process main threa
 Avoids RuntimeError: main thread is not in main loop in multi-threaded web servers.
 """
 import sys
-import tkinter as tk
-from tkinter import filedialog
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+except ImportError:
+    tk = None
+    filedialog = None
 
 
 def main():
