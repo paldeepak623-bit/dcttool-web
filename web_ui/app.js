@@ -1179,10 +1179,22 @@ async function startExecution() {
     } else {
       clearInterval(progressTicker);
       stopEcgMonitor(false);
-      const httpErrMsg = `Server returned HTTP status ${res.status}`;
+      let httpErrMsg = `Server returned HTTP status ${res.status}`;
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.error) {
+          httpErrMsg = errJson.error;
+        }
+        if (errJson && errJson.logs && errJson.logs.length > 0) {
+          errJson.logs.forEach(line => {
+            appendLog(line, "red");
+            appendConsoleLog(line, "red");
+          });
+        }
+      } catch (_) {}
       appendLog(`❌ ${httpErrMsg}`, "red");
       appendConsoleLog(`❌ ${httpErrMsg}`, "red");
-      alert(`❌ Server Error: ${httpErrMsg}`);
+      alert(`❌ Error:\n\n${httpErrMsg}`);
     }
   } catch (err) {
     clearInterval(progressTicker);

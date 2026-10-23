@@ -203,6 +203,10 @@ def upload_file():
 def start_process():
     data = request.json or {}
     pacs_id = data.get("pacs_id", "").strip()
+    district = data.get("district", "").strip()
+    portal_url = data.get("portal_url", "").strip()
+    login_id = data.get("login_id", "").strip()
+    password = data.get("password", "")
     tpl_states = data.get("templates", {})
 
     seed_path = ACTIVE_SESSION.get("file_path")
@@ -214,19 +218,24 @@ def start_process():
         logs.append(msg)
 
     selection = TemplateSelection(
+        declaration=tpl_states.get("declaration", True),
         membership=tpl_states.get("membership", True),
         stloans=tpl_states.get("stloans", True),
         loan_transaction=tpl_states.get("loan_transaction", True),
         land=tpl_states.get("land", True),
         savings=tpl_states.get("savings", True),
+        stloans_to_lt=tpl_states.get("stloans_to_lt", True),
+        dropdown_list=tpl_states.get("dropdown_list", False),
     )
 
     settings = MasterSettings(
         seed_path=Path(seed_path),
-        output_dir=OUTPUT_DIR,
-        pacs_id=pacs_id or None,
-        selection=selection,
-        auto_portal_fetch=False,
+        url=portal_url or "https://up3.unitetools.in/",
+        login_id=login_id or "",
+        password=password or "",
+        pacs_id=pacs_id or ACTIVE_SESSION.get("pacs_id") or "",
+        district=district or ACTIVE_SESSION.get("detected_district") or "",
+        templates=selection,
     )
 
     try:
