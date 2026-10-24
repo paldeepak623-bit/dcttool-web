@@ -154,13 +154,15 @@ def _build_mandal_village_assignments(
 ) -> list[tuple[str, str]]:
     """
     Build (mandal, village) pairs for each row.
-    If target_mandal is provided and exists in mandal_village_map, strictly uses that PACS mandal
-    and distributes official registered portal villages from THAT mandal.
+    Distributes across all available mandals of the district randomly and non-sequentially,
+    ensuring that EVERY village strictly belongs to the assigned mandal without any mismatch.
     """
-    if target_mandal and target_mandal in mandal_village_map:
-        m_list = [target_mandal]
-    else:
-        m_list = list(mandal_village_map.keys())
+    valid_mandals = [m for m, vils in mandal_village_map.items() if vils]
+    if not valid_mandals:
+        return []
+
+    # Distribute across all available district mandals (e.g. 4 to 7 mandals)
+    m_list = valid_mandals
 
     assignments: list[tuple[str, str]] = []
     for _ in range(total_rows):

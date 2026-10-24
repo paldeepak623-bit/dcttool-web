@@ -334,6 +334,39 @@ def process_master_workbook(
             _status(on_status, f"[PORTAL NOTE] Live portal connection bypassed (Government portal security block/timeout): {p_err}")
             _status(on_status, "✔ Activating smart fallback: Using verified registered villages from Master Sheet & PACS records...")
 
+        # Load verified cached district land data (e.g. Kheri, Mau, Budaun) if not loaded
+        if not land_data:
+            from dcttool.portals.unite_portal import LandPortalData
+            import json
+            q = (district or "").strip().lower()
+            cand_files = []
+            if "kheri" in q or "lakhimpur" in q:
+                cand_files = ["kheri_land_data.json"]
+            elif "mau" in q:
+                cand_files = ["mau_land_data.json"]
+            elif "budaun" in q or "badaun" in q:
+                cand_files = ["budaun_land_data.json"]
+            else:
+                cand_files = [f"{q}_land_data.json"]
+
+            for cf in cand_files:
+                cpath = Path(__file__).resolve().parent / "portals" / cf
+                if cpath.exists():
+                    try:
+                        with open(cpath, "r", encoding="utf-8") as f:
+                            d = json.load(f)
+                        m_map = d.get("mandal_village_map", {})
+                        if m_map:
+                            land_data = LandPortalData(
+                                state_name=d.get("state_name", "UTTAR PRADESH"),
+                                district_desc=d.get("district_desc", district.upper()),
+                                mandal_village_map=m_map,
+                            )
+                            _status(on_status, f"[OFFLINE DATA] Loaded {len(m_map)} verified portal mandals & {sum(len(v) for v in m_map.values())} villages for {district}.")
+                            break
+                    except Exception:
+                        pass
+
     # Ensure villages list is ALWAYS populated
     if sel.membership and "Membership" in has:
         if not villages:

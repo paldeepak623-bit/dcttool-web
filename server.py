@@ -241,7 +241,15 @@ def start_process():
 
     seed_path = ACTIVE_SESSION.get("file_path")
     if not seed_path or not Path(seed_path).exists():
-        return jsonify({"success": False, "error": "Master sheet not found or expired. Please upload again."}), 400
+        # Fallback to the latest .xlsx in UPLOAD_DIR so uploaded file never expires
+        uploaded_files = list(UPLOAD_DIR.glob("*.xlsx"))
+        if uploaded_files:
+            latest = max(uploaded_files, key=lambda p: p.stat().st_mtime)
+            seed_path = str(latest)
+            ACTIVE_SESSION["file_path"] = seed_path
+            ACTIVE_SESSION["file_name"] = latest.name
+        else:
+            return jsonify({"success": False, "error": "Master sheet not found or expired. Please upload again."}), 400
 
     logs: list[str] = []
     def on_status(msg: str):
