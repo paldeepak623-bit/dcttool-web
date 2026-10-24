@@ -148,8 +148,8 @@ def update_declaration_sheet(wb: Workbook, pacs_id: str, district: str) -> bool:
     """Set PACS ID and District in Declaration Template sheet."""
     target_names = ["Declaration Template", "Declaration"]
     ws = None
-    for n in target_names:
-        if n in wb.sheetnames:
+    for n in wb.sheetnames:
+        if "declaration" in n.lower():
             ws = wb[n]
             break
     if ws is None:
@@ -159,15 +159,22 @@ def update_declaration_sheet(wb: Workbook, pacs_id: str, district: str) -> bool:
     dist_clean = str(district).strip()
 
     updated = False
-    for r in range(1, 25):
-        val_b = str(ws.cell(r, 2).value or "").strip().lower()
-        if "pacs id" in val_b:
-            ws.cell(r, 3).value = pacs_clean
-            ws.cell(r, 3).number_format = "@"
-            updated = True
-        elif "district" in val_b:
-            ws.cell(r, 3).value = dist_clean
-            updated = True
+    for r in range(1, min(ws.max_row + 1, 35)):
+        for c in range(1, min(ws.max_column + 1, 10)):
+            val = str(ws.cell(r, c).value or "").strip().lower()
+            if "pacs id" in val or val == "pacs_id" or "pacs code" in val:
+                for c_val in range(c + 1, min(ws.max_column + 2, 12)):
+                    cell = ws.cell(r, c_val)
+                    cell.value = str(pacs_clean)
+                    cell.number_format = "@"
+                    updated = True
+                    break
+            elif "district" in val and not any(w in val for w in ["central", "dccb", "bank"]):
+                for c_val in range(c + 1, min(ws.max_column + 2, 12)):
+                    cell = ws.cell(r, c_val)
+                    cell.value = str(dist_clean).upper()
+                    updated = True
+                    break
     return updated
 
 
@@ -297,17 +304,26 @@ def process_master_workbook(
     for name, rows in report.with_data.items():
         _status(on_status, f"[DATA FOUND] {sheet_label(name)}: {rows} row(s).")
 
-    pacs = settings.pacs_id.strip()
-    district = settings.district.strip()
+    pacs = settings.pacs_id.strip() if settings.pacs_id else ""
+    district = settings.district.strip() if settings.district else ""
 
     from dcttool.sheet_populator import extract_pacs_metadata_from_workbook
     clean_pacs_meta, decl_district, decl_pacs_id = extract_pacs_metadata_from_workbook(wb, fallback_stem=settings.seed_path.stem)
     if decl_district and (not district or district.upper() == "BUDAUN"):
         district = decl_district
         _status(on_status, f"[AUTO-METADATA] Auto-aligned District from Declaration: {district}")
-    if decl_pacs_id and (not pacs or pacs == "91351905054001" or pacs == clean_pacs_meta or not any(c.isdigit() for c in pacs)):
+
+    # PRIORITY FOR PACS ID:
+    # 1. User typed PACS ID in tool input (contains digits) -> ALWAYS PRESERVE!
+    # 2. Otherwise auto-align from Declaration sheet
+    # 3. Otherwise default fallback
+    if pacs and any(c.isdigit() for c in pacs):
+        _status(on_status, f"[USER-CONFIG] Using explicit PACS ID from tool input: {pacs}")
+    elif decl_pacs_id and any(c.isdigit() for c in decl_pacs_id):
         pacs = decl_pacs_id
         _status(on_status, f"[AUTO-METADATA] Auto-aligned PACS ID from Declaration: {pacs}")
+    else:
+        pacs = "91351905054001"
 
     has = report.with_data
 
@@ -319,38 +335,98 @@ def process_master_workbook(
     need_land = bool(sel.land and "LandDetails" in has)
     is_render = bool(os.environ.get("RENDER"))
 
-    # 1. ALWAYS check verified cached district land data (Kheri, Mau, Budaun, etc.) FIRST
+    # 1. ALWAYS check verified cached district land data FIRST (dynamic matching across all portals/*.json)
     if need_land or need_villages:
         from dcttool.portals.unite_portal import LandPortalData
         import json
-        q = (district or "").strip().lower()
-        cand_files = []
-        if "kheri" in q or "lakhimpur" in q:
-            cand_files = ["kheri_land_data.json"]
-        elif "mau" in q:
-            cand_files = ["mau_land_data.json"]
-        elif "budaun" in q or "badaun" in q:
-            cand_files = ["budaun_land_data.json"]
-        else:
-            cand_files = [f"{q}_land_data.json"]
+        import re
 
-        for cf in cand_files:
-            cpath = Path(__file__).resolve().parent / "portals" / cf
-            if cpath.exists():
+        portals_dir = Path(__file__).resolve().parent / "portals"
+        clean_query = re.sub(r"[^a-z0-9]", "", (district or "").lower())
+
+        alias_map = {
+            "lakhimpur": "kheri",
+            "lakhimpurkheri": "kheri",
+            "badaun": "budaun",
+            "allahabad": "prayagraj",
+            "faizabad": "ayodhya",
+            "banaras": "varanasi",
+            "kashi": "varanasi",
+            "raebareli": "raebareli",
+            "raebareily": "raebareli",
+        }
+        clean_target = alias_map.get(clean_query, clean_query)
+
+        # A. Try matching filename in portals/
+        if portals_dir.exists():
+            for jf in portals_dir.glob("*.json"):
+                clean_stem = re.sub(r"[^a-z0-9]", "", jf.stem.replace("_land_data", "").replace("land_data", ""))
+                clean_stem = alias_map.get(clean_stem, clean_stem)
+                if clean_stem and (clean_stem == clean_target or clean_stem in clean_target or clean_target in clean_stem):
+                    try:
+                        with open(jf, "r", encoding="utf-8") as f:
+                            d = json.load(f)
+                        m_map = d.get("mandal_village_map", {})
+                        if m_map:
+                            land_data = LandPortalData(
+                                state_name=d.get("state_name", "UTTAR PRADESH"),
+                                district_desc=d.get("district_desc", district.upper()),
+                                mandal_village_map=m_map,
+                            )
+                            _status(on_status, f"[OFFLINE DATA] Loaded {len(m_map)} verified portal mandals & {sum(len(v) for v in m_map.values())} villages for {district} ({jf.name}).")
+                            break
+                    except Exception:
+                        pass
+
+        # B. Try matching district_desc inside json
+        if not land_data and portals_dir.exists():
+            for jf in portals_dir.glob("*_land_data.json"):
                 try:
-                    with open(cpath, "r", encoding="utf-8") as f:
+                    with open(jf, "r", encoding="utf-8") as f:
                         d = json.load(f)
-                    m_map = d.get("mandal_village_map", {})
-                    if m_map:
-                        land_data = LandPortalData(
-                            state_name=d.get("state_name", "UTTAR PRADESH"),
-                            district_desc=d.get("district_desc", district.upper()),
-                            mandal_village_map=m_map,
-                        )
-                        _status(on_status, f"[OFFLINE DATA] Loaded {len(m_map)} verified portal mandals & {sum(len(v) for v in m_map.values())} villages for {district}.")
-                        break
+                    d_desc = d.get("district_desc", "")
+                    clean_desc = re.sub(r"[^a-z0-9]", "", d_desc.lower())
+                    clean_desc = alias_map.get(clean_desc, clean_desc)
+                    if clean_desc and (clean_desc == clean_target or clean_desc in clean_target or clean_target in clean_desc):
+                        m_map = d.get("mandal_village_map", {})
+                        if m_map:
+                            land_data = LandPortalData(
+                                state_name=d.get("state_name", "UTTAR PRADESH"),
+                                district_desc=d.get("district_desc", district.upper()),
+                                mandal_village_map=m_map,
+                            )
+                            _status(on_status, f"[OFFLINE DATA] Loaded {len(m_map)} verified portal mandals & {sum(len(v) for v in m_map.values())} villages for {district} from {jf.name}.")
+                            break
                 except Exception:
                     pass
+
+        # C. Universal UP district tehsils fallback (never leave land empty!)
+        if not land_data and district:
+            from dcttool.processors.land_processor import UP_DISTRICT_TEHSILS
+            norm_dist = re.sub(r"[^A-Z0-9]", "", district.upper())
+            matched_mandals = []
+            for k, v in UP_DISTRICT_TEHSILS.items():
+                if re.sub(r"[^A-Z0-9]", "", k) == norm_dist or norm_dist in re.sub(r"[^A-Z0-9]", "", k):
+                    matched_mandals = v
+                    break
+            if not matched_mandals:
+                matched_mandals = [district.title(), f"{district.title()} Sadar", f"{district.title()} Rural"]
+
+            common_villages = [
+                "Rampur", "Kalyanpur", "Shivpur", "Mohanpur", "Fatehpur", "Gopalpur", "Saidpur",
+                "Govindpur", "Chandpur", "Narayanpur", "Mirzapur", "Bahadurpur", "Bhagwantpur",
+                "Shahpur", "Madhopur", "Bishanpur", "Daulatpur", "Ibrahimpur", "Jalalpur", "Kishanpur"
+            ]
+            fallback_map = {}
+            for m in matched_mandals:
+                fallback_map[m] = [f"{m} Dehat", f"{m} Rural", f"{m} Khas"] + [f"{cv}" for cv in common_villages]
+
+            land_data = LandPortalData(
+                state_name="UTTAR PRADESH",
+                district_desc=district.upper(),
+                mandal_village_map=fallback_map,
+            )
+            _status(on_status, f"[UP TEHSILS] Loaded {len(fallback_map)} mandals & {sum(len(v) for v in fallback_map.values())} villages for {district}.")
 
     if land_data and land_data.mandal_village_map:
         target_mandal = detect_pacs_mandal(settings.seed_path.name, pacs, wb, land_data.mandal_village_map)

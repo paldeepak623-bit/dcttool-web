@@ -98,7 +98,7 @@ def upload_file():
     except Exception as e:
         return jsonify({"success": False, "message": f"Invalid Excel file: {e}"}), 400
 
-    clean_pacs, clean_name, clean_dist = extract_pacs_metadata_from_workbook(wb, fallback_stem=dest_path.stem)
+    clean_name, clean_dist, clean_pacs_id = extract_pacs_metadata_from_workbook(wb, fallback_stem=dest_path.stem)
 
     # Perform audit
     audit = {
@@ -224,7 +224,8 @@ def upload_file():
     ACTIVE_SESSION["file_path"] = str(dest_path)
     ACTIVE_SESSION["file_size"] = size_str
     ACTIVE_SESSION["detected_district"] = clean_dist or ""
-    ACTIVE_SESSION["pacs_id"] = clean_pacs or ""
+    ACTIVE_SESSION["pacs_id"] = clean_pacs_id or ""
+    ACTIVE_SESSION["pacs_name"] = clean_name or ""
     ACTIVE_SESSION["audit"] = audit
 
     wb.close()
@@ -235,7 +236,8 @@ def upload_file():
         "file_path": str(dest_path),
         "file_size": size_str,
         "detected_district": clean_dist or "",
-        "pacs_id": clean_pacs or "",
+        "pacs_id": clean_pacs_id or "",
+        "pacs_name": clean_name or "",
         "audit": audit,
     })
 

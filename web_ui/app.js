@@ -394,6 +394,14 @@ function applyLoadedFileData(data) {
   if (pacsInp) {
     pacsInp.value = data.pacs_id || data.detected_pacs || '';
   }
+  const adminPacs = document.getElementById('adminPacsInput');
+  if (adminPacs && data.pacs_id) {
+    adminPacs.value = data.pacs_id;
+  }
+  const cockpitPacs = document.getElementById('cockpitPacsDisplay');
+  if (cockpitPacs) {
+    cockpitPacs.textContent = data.pacs_name || data.pacs_id || currentLoadedFile || '[Active PACS]';
+  }
 
   // Apply audit reconciliation if already calculated or poll in background
   if (data.audit) {
