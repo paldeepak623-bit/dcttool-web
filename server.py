@@ -44,6 +44,16 @@ ACTIVE_SESSION = {
 def index():
     return send_from_directory("web_ui", "index.html")
 
+@app.route("/api/version")
+def api_version():
+    return jsonify({
+        "status": "online",
+        "version": "2.5.0",
+        "render_resilient": True,
+        "multi_mandal": True,
+        "pre_cached_districts": ["Kheri", "Mau", "Budaun"]
+    })
+
 @app.route("/<path:path>")
 def static_files(path):
     if (BASE_DIR / "web_ui" / path).is_file():
