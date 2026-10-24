@@ -258,11 +258,11 @@ def start_process():
     selection = TemplateSelection(
         declaration=tpl_states.get("declaration", True),
         membership=tpl_states.get("membership", True),
-        stloans=tpl_states.get("stloans", True),
+        stloans=tpl_states.get("stloans", tpl_states.get("short_term_loans", True)),
         loan_transaction=tpl_states.get("loan_transaction", True),
-        land=tpl_states.get("land", True),
+        land=tpl_states.get("land", tpl_states.get("land_details", True)),
         savings=tpl_states.get("savings", True),
-        stloans_to_lt=tpl_states.get("stloans_to_lt", True),
+        stloans_to_lt=tpl_states.get("stloans_to_lt", tpl_states.get("loan_conversion", True)),
         dropdown_list=tpl_states.get("dropdown_list", False),
     )
 
