@@ -228,6 +228,21 @@ def upload_file():
     ACTIVE_SESSION["pacs_name"] = clean_name or ""
     ACTIVE_SESSION["audit"] = audit
 
+    # Persist session cache to disk to survive container worker recycling
+    try:
+        import json
+        with open(UPLOAD_DIR / "session_cache.json", "w", encoding="utf-8") as sf:
+            json.dump({
+                "file_name": fname,
+                "file_path": str(dest_path),
+                "file_size": size_str,
+                "detected_district": clean_dist or "",
+                "pacs_id": clean_pacs_id or "",
+                "pacs_name": clean_name or "",
+            }, sf)
+    except Exception:
+        pass
+
     wb.close()
 
     return jsonify({
@@ -250,10 +265,33 @@ def start_process():
     login_id = data.get("login_id", "").strip()
     password = data.get("password", "")
     tpl_states = data.get("templates", {})
+    req_file_name = data.get("file_name", "").strip()
 
     seed_path = ACTIVE_SESSION.get("file_path")
+    # 1. Check explicit requested file_name
+    if (not seed_path or not Path(seed_path).exists()) and req_file_name:
+        cand = UPLOAD_DIR / req_file_name
+        if cand.exists():
+            seed_path = str(cand)
+            ACTIVE_SESSION["file_path"] = seed_path
+            ACTIVE_SESSION["file_name"] = cand.name
+
+    # 2. Check session_cache.json on disk
+    session_file = UPLOAD_DIR / "session_cache.json"
+    if (not seed_path or not Path(seed_path).exists()) and session_file.exists():
+        try:
+            import json
+            with open(session_file, "r", encoding="utf-8") as sf:
+                s_data = json.load(sf)
+            cached_fp = s_data.get("file_path")
+            if cached_fp and Path(cached_fp).exists():
+                seed_path = cached_fp
+                ACTIVE_SESSION.update(s_data)
+        except Exception:
+            pass
+
+    # 3. Fallback to latest .xlsx in UPLOAD_DIR
     if not seed_path or not Path(seed_path).exists():
-        # Fallback to the latest .xlsx in UPLOAD_DIR so uploaded file never expires
         uploaded_files = list(UPLOAD_DIR.glob("*.xlsx"))
         if uploaded_files:
             latest = max(uploaded_files, key=lambda p: p.stat().st_mtime)
@@ -261,7 +299,11 @@ def start_process():
             ACTIVE_SESSION["file_path"] = seed_path
             ACTIVE_SESSION["file_name"] = latest.name
         else:
-            return jsonify({"success": False, "error": "Master sheet not found or expired. Please upload again."}), 400
+            return jsonify({
+                "success": False,
+                "error": "Master sheet not found or expired. Please upload again.",
+                "expired": True
+            }), 400
 
     logs: list[str] = []
     def on_status(msg: str):
@@ -328,6 +370,14 @@ def start_process():
             "audit": ACTIVE_SESSION.get("audit"),
         })
 
+    except MasterEngineError as e:
+        err_str = str(e)
+        logs.append(f"❌ {err_str}")
+        return jsonify({
+            "success": False,
+            "error": err_str,
+            "logs": logs,
+        }), 200
     except Exception as e:
         import traceback
         err_str = f"Error during processing: {str(e)}"

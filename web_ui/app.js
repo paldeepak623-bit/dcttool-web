@@ -488,6 +488,7 @@ async function browseFile() {
 async function handleHTMLFileInput(input) {
   if (!input.files || input.files.length === 0) return;
   const file = input.files[0];
+  window.currentMasterFile = file;
   const formData = new FormData();
   formData.append('file', file);
 
@@ -1077,6 +1078,8 @@ async function startExecution() {
   });
 
   const payload = {
+    file_name: currentLoadedFile || (window.currentMasterFile ? window.currentMasterFile.name : ""),
+    file_path: (typeof currentLoadedFilePath !== 'undefined' ? currentLoadedFilePath : ""),
     pacs_id: pacsInput ? pacsInput.value.trim() : "",
     district: distSelect ? distSelect.value : "",
     portal_url: portSelect ? portSelect.value : "",
@@ -1106,11 +1109,42 @@ async function startExecution() {
   }, 1500);
 
   try {
-    const res = await fetch('/api/start_process', {
+    let res = await fetch('/api/start_process', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+
+    // Seamless auto-recovery: If Render restarted or session expired, auto-reupload file in background!
+    if (res.status === 400 && window.currentMasterFile) {
+      try {
+        const cloneRes = res.clone();
+        const errJson = await cloneRes.json();
+        if (errJson && errJson.error && (errJson.error.includes("expired") || errJson.error.includes("not found"))) {
+          appendLog("🔄 Restoring master sheet upload to cloud container...", "blue");
+          appendConsoleLog("🔄 Restoring master sheet upload to cloud container...", "blue");
+          const reFormData = new FormData();
+          reFormData.append('file', window.currentMasterFile);
+          const upRes = await fetch('/api/upload_file', { method: 'POST', body: reFormData });
+          if (upRes.ok) {
+            const upData = await upRes.json();
+            if (upData.success) {
+              appendLog("✔ Master sheet restored! Starting automation...", "green");
+              appendConsoleLog("✔ Master sheet restored! Starting automation...", "green");
+              payload.file_name = upData.file_name;
+              payload.file_path = upData.file_path;
+              res = await fetch('/api/start_process', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+              });
+            }
+          }
+        }
+      } catch (reErr) {
+        console.warn("Auto-recover retry error:", reErr);
+      }
+    }
 
     clearInterval(progressTicker);
 

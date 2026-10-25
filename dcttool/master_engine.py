@@ -333,10 +333,9 @@ def process_master_workbook(
 
     need_villages = bool(sel.membership and "Membership" in has)
     need_land = bool(sel.land and "LandDetails" in has)
-    is_render = bool(os.environ.get("RENDER"))
 
-    # 1. ALWAYS check verified cached district land data FIRST (dynamic matching across all portals/*.json)
-    if need_land or need_villages:
+    # 1. ALWAYS check verified cached district land data for Land mapping
+    if need_land:
         from dcttool.portals.unite_portal import LandPortalData
         import json
         import re
@@ -433,15 +432,22 @@ def process_master_workbook(
         if target_mandal and target_mandal in land_data.mandal_village_map:
             _status(on_status, f"[MANDAL] Detected PACS Mandal '{target_mandal}' for Land mapping ({clean_pacs_meta or 'PACS'}).")
 
-    # 2. Only attempt live portal session if NOT on Render AND we do not already have land_data
-    can_attempt_live = not is_render and (not land_data or not villages)
-    if (need_villages or need_land) and can_attempt_live:
+    # 2. Portal Session: Live PACS dropdown villages are STRICTLY MANDATORY for Membership!
+    if need_villages:
+        has_credentials = bool(settings.login_id and settings.login_id.strip() and settings.password)
+        if not has_credentials:
+            raise MasterEngineError(
+                "Membership template process karne ke liye Portal URL, Login ID aur Password anivarya hai.\n\n"
+                "PACS portal dropdown se valid registered gaon prapt hona zaroori hai.\n"
+                "Aapke rules ke anusar bina portal verification ke Excel sheet ke purane gaon templates me use nahi kiye ja sakte."
+            )
+
         try:
             portal = fetch_portal_session(
                 settings.url,
                 settings.login_id,
                 settings.password,
-                need_villages=need_villages and not villages,
+                need_villages=True,
                 need_land=need_land and not land_data,
                 district_desc=district,
                 headless=True,
@@ -454,47 +460,44 @@ def process_master_workbook(
                 land_data = portal.land_data
                 _status(on_status, f"[PORTAL] Successfully loaded land mapping for {district}.")
         except Exception as p_err:
-            _status(on_status, f"[PORTAL NOTE] Live portal connection bypassed: {p_err}")
+            _status(on_status, f"[PORTAL ERROR] Portal sync failed: {p_err}")
+            raise MasterEngineError(
+                f"Portal se PACS ke valid registered villages prapt nahi huye!\n\n"
+                f"Karan: {p_err}\n\n"
+                f"Aapke rules ke anusar Excel sheet ke purane gaon templates me use nahi kiye ja sakte.\n"
+                f"Kripya sahi Portal URL ({settings.url}), Login ID ({settings.login_id}) aur Password daalkar verify karein."
+            )
 
-    # 3. Ensure villages list is ALWAYS populated with genuine portal-registered villages
-    if sel.membership and "Membership" in has:
+        # Strict validation: If dropdown village list is empty or absent, HALT immediately!
         if not villages:
-            from dcttool.processors.membership_processor import filter_village_options
-            extracted: list[str] = []
+            raise MasterEngineError(
+                "Portal se PACS ke valid registered villages prapt nahi huye!\n\n"
+                "Karan: PACS ke portal dropdown (Membership -> Personal Details -> + Add) me koi registered village nahi mila.\n"
+                "Portal par bina valid dropdown village ke data dalne par sabhi members 'Others' ho jate hain.\n"
+                "Kripya portal par verify karein ki is PACS ke liye gaon register hain ya nahi.\n\n"
+                "Aapke rules ke anusar Excel sheet ke purane gaon templates me use nahi kiye ja sakte.\n"
+                f"Kripya sahi Portal URL ({settings.url}), Login ID ({settings.login_id}) aur Password daalkar verify karein."
+            )
 
-            # A. Extract genuine villages from existing Membership sheet
-            m_ws = wb["Membership"]
-            m_hdrs = {}
-            for _c in range(1, m_ws.max_column + 1):
-                _v = m_ws.cell(1, _c).value
-                if _v:
-                    m_hdrs[str(_v).strip()] = _c
-            v_col = m_hdrs.get("VillageDescription") or m_hdrs.get("Village") or m_hdrs.get("VillageName")
-            if v_col:
-                for r in range(2, m_ws.max_row + 1):
-                    val = m_ws.cell(r, v_col).value
-                    if val and str(val).strip():
-                        extracted.append(str(val).strip())
-
-            # C. If land_data is available, include genuine official villages from portal mandal
-            if land_data and land_data.mandal_village_map:
-                if target_mandal and target_mandal in land_data.mandal_village_map:
-                    extracted.extend(land_data.mandal_village_map[target_mandal][:60])
-                for m_vils in land_data.mandal_village_map.values():
-                    extracted.extend(m_vils[:15])
-
-            # D. Known registered villages for verified PACS (e.g. Bhulanpur/Kheri, Bhujai/Mau)
-            extracted.extend([
-                "Sindhiya ahtamali", "Singaniya", "Singarpur", "Siraincha",
-                "Sisava Kala", "Sisava Khurd", "Sisouna", "Sisoura",
-                "Sonaripur Khaliulla", "Southan", "Bhulanpur", "Bhadaura",
-                "Dewariya Bujurg", "Hafizpur", "Khatibpur", "Noniyapur", "Saidpur"
-            ])
-
-            villages = filter_village_options(extracted)
-            if not villages:
-                villages = ["Others", "Main Village"]
-            _status(on_status, f"[VERIFIED VILLAGES] Successfully loaded {len(villages)} portal-compatible village(s): {', '.join(villages[:6])}...")
+    elif need_land and not land_data:
+        has_credentials = bool(settings.login_id and settings.login_id.strip() and settings.password)
+        if has_credentials:
+            try:
+                portal = fetch_portal_session(
+                    settings.url,
+                    settings.login_id,
+                    settings.password,
+                    need_villages=False,
+                    need_land=True,
+                    district_desc=district,
+                    headless=True,
+                    on_status=on_status,
+                )
+                if portal.land_data:
+                    land_data = portal.land_data
+                    _status(on_status, f"[PORTAL] Successfully loaded land mapping for {district}.")
+            except Exception as p_err:
+                _status(on_status, f"[PORTAL NOTE] Land data portal sync note: {p_err}")
 
     try:
         # 1. Update Declaration Template if present
