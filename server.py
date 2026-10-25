@@ -48,11 +48,23 @@ def index():
 def api_version():
     return jsonify({
         "status": "online",
-        "version": "2.5.0",
+        "version": "2.6.0",
         "render_resilient": True,
         "multi_mandal": True,
         "pre_cached_districts": ["Kheri", "Mau", "Budaun"]
     })
+
+@app.route("/api/test_portal")
+def test_portal():
+    import urllib.request, time
+    t0 = time.time()
+    url = request.args.get("url", "https://up5.unitetools.in/")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        resp = urllib.request.urlopen(req, timeout=15)
+        return jsonify({"success": True, "status": resp.status, "duration": round(time.time() - t0, 2)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e), "duration": round(time.time() - t0, 2)})
 
 @app.route("/<path:path>")
 def static_files(path):

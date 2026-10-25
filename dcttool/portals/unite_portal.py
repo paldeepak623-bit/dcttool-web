@@ -58,7 +58,7 @@ def normalize_url(url: str) -> str:
 
 
 class UnitePortalClient:
-    def __init__(self, base_url: str, timeout: int = 4) -> None:
+    def __init__(self, base_url: str, timeout: int = 15) -> None:
         self.base_url = normalize_url(base_url)
         self.timeout = timeout
         self.session = requests.Session()
@@ -79,10 +79,19 @@ class UnitePortalClient:
                 on_status(msg)
 
         status(f"Connecting to portal {self.base_url}...")
-        try:
-            r = self.session.get(self.base_url, timeout=self.timeout, verify=False)
-        except Exception as exc:
-            raise UnitePortalError(f"Could not connect to {self.base_url}: {exc}") from exc
+        r = None
+        last_exc = None
+        for attempt in range(1, 3):
+            try:
+                r = self.session.get(self.base_url, timeout=self.timeout, verify=False)
+                if r.status_code == 200:
+                    break
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2:
+                    status(f"Connecting to portal attempt {attempt} timed out, retrying...")
+        if r is None:
+            raise UnitePortalError(f"Could not connect to {self.base_url}: {last_exc}") from last_exc
 
         soup = BeautifulSoup(r.text, "html.parser")
         token_el = soup.find("input", {"name": "__RequestVerificationToken"})
