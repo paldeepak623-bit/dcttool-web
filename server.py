@@ -48,7 +48,7 @@ def index():
 def api_version():
     return jsonify({
         "status": "online",
-        "version": "2.6.0",
+        "version": "2.6.1",
         "render_resilient": True,
         "multi_mandal": True,
         "pre_cached_districts": ["Kheri", "Mau", "Budaun"]
