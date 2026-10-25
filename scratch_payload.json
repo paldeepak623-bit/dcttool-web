@@ -1,0 +1,17 @@
+{
+  "pacs_id": "91355404078001",
+  "district": "Kheri",
+  "portal_url": "https://up3.unitetools.in/",
+  "login_id": "UP320052618389_de@coopsindia.com",
+  "password": "Unite@123",
+  "templates": {
+    "declaration": true,
+    "short_term_loans": true,
+    "membership": true,
+    "land_details": true,
+    "savings": true,
+    "loan_transaction": true,
+    "dropdown_list": false,
+    "loan_conversion": true
+  }
+}

@@ -263,6 +263,115 @@ class UnitePortalClient:
         status(f"[OK] Live PACS Membership villages loaded from portal dropdown ({len(valid_villages)} villages, strictly no 'Others'): {', '.join(valid_villages)}")
         return valid_villages
 
+    def auto_assign_pacs_villages(
+        self,
+        villages_per_mandal: int = 10,
+        max_total_villages: int = 50,
+        on_status: Callable[[str], None] | None = None,
+    ) -> int:
+        """Automatically assigns genuine registered villages to the active PACS on the portal
+        via Utilities -> Customer Data -> Assign Villages.
+
+        Selects villages across available mandals, submits POST request,
+        and saves them so they genuinely populate the PACS's portal dropdown.
+        """
+        def status(msg: str) -> None:
+            if on_status:
+                on_status(msg)
+
+        status("[AUTO-ASSIGN] Opening Assign Villages page (Utilities -> Customer Data)...")
+        assign_url = f"{self.base_url}/Membership/AssignVillages/AssignVillages?formid=51008&moduleid=51"
+        try:
+            r = self.session.get(assign_url, timeout=12, verify=False)
+        except Exception as exc:
+            status(f"[AUTO-ASSIGN] Could not open Assign Villages page: {exc}")
+            return 0
+
+        soup = BeautifulSoup(r.text, "html.parser")
+        mandal_sel = soup.find("select", {"id": "MandalSelect"})
+        if not mandal_sel:
+            mandal_sel = soup.find("select", {"name": "Mandalpkey"})
+
+        if not mandal_sel:
+            status("[AUTO-ASSIGN] Mandal dropdown not found on Assign Villages page.")
+            return 0
+
+        mandals: list[tuple[str, str]] = []
+        for opt in mandal_sel.find_all("option"):
+            val = str(opt.get("value", "")).strip()
+            name = opt.text.strip()
+            if val and val not in {"", "--select--", "-- select --", "0"}:
+                mandals.append((val, name))
+
+        if not mandals:
+            status("[AUTO-ASSIGN] No mandals found in dropdown.")
+            return 0
+
+        status(f"[AUTO-ASSIGN] Found {len(mandals)} Mandal(s) on portal: {', '.join(m[1] for m in mandals)}")
+
+        headers_ajax = {"X-Requested-With": "XMLHttpRequest"}
+        total_assigned = 0
+
+        for m_val, m_name in mandals:
+            if total_assigned >= max_total_villages:
+                break
+
+            status(f"[AUTO-ASSIGN] Fetching unassigned villages for Mandal '{m_name}'...")
+            try:
+                v_res = self.session.get(
+                    f"{self.base_url}/Membership/AssignVillages/GetVillageData",
+                    params={"MandalSelect": m_val},
+                    headers=headers_ajax,
+                    timeout=10,
+                    verify=False,
+                )
+                v_data = v_res.json()
+            except Exception as e:
+                status(f"[AUTO-ASSIGN] Error fetching villages for Mandal {m_name}: {e}")
+                continue
+
+            if not isinstance(v_data, list):
+                continue
+
+            # Pick up to villages_per_mandal unassigned genuine villages
+            unassigned = []
+            for item in v_data:
+                if not item.get("IsSelect") and item.get("Pkey") and item.get("VillageName"):
+                    v_name = str(item.get("VillageName", "")).strip()
+                    if not is_invalid_village(v_name):
+                        unassigned.append(item)
+                        if len(unassigned) >= villages_per_mandal:
+                            break
+
+            if not unassigned:
+                status(f"[AUTO-ASSIGN] No unassigned villages available in Mandal '{m_name}'.")
+                continue
+
+            # Format data exactly as jQuery AJAX submits: list[i][Pkey] and list[i][IsSelect]
+            post_data = {}
+            for idx, item in enumerate(unassigned):
+                post_data[f"list[{idx}][Pkey]"] = str(item["Pkey"])
+                post_data[f"list[{idx}][IsSelect]"] = "true"
+
+            try:
+                post_res = self.session.post(
+                    f"{self.base_url}/Membership/AssignVillages/AssignVillages",
+                    data=post_data,
+                    headers=headers_ajax,
+                    timeout=12,
+                    verify=False,
+                )
+                if post_res.status_code == 200:
+                    total_assigned += len(unassigned)
+                    status(f"[AUTO-ASSIGN] [OK] Successfully assigned {len(unassigned)} village(s) from Mandal '{m_name}' (Total assigned: {total_assigned}).")
+                else:
+                    status(f"[AUTO-ASSIGN] Save returned HTTP {post_res.status_code} for Mandal '{m_name}'.")
+            except Exception as e:
+                status(f"[AUTO-ASSIGN] Error saving villages for Mandal {m_name}: {e}")
+
+        status(f"[AUTO-ASSIGN] Finished! Total {total_assigned} village(s) assigned to PACS on portal.")
+        return total_assigned
+
     def fetch_villages_for_district(
         self,
         district_query: str,

@@ -74,8 +74,19 @@ def fetch_portal_session(
                 is_pacs_dropdown = True
                 status(f"[PORTAL] Successfully loaded {len(villages)} PACS-specific dropdown village(s): {', '.join(villages[:5])}...")
             else:
+                status("[AUTO-ASSIGN] PACS ke portal dropdown me koi gaon registered nahi mila! Auto Assign Villages workflow shuru kar rahe hain...")
+                assigned_count = client.auto_assign_pacs_villages(villages_per_mandal=10, max_total_villages=50, on_status=status)
+                if assigned_count > 0:
+                    status("[AUTO-ASSIGN] Gaon portal par successfully assign ho gaye! Dropdown se naye genuine gaon verify kar rahe hain...")
+                    pacs_dropdown_villages = client.fetch_membership_pacs_villages(on_status=status)
+                    if pacs_dropdown_villages:
+                        villages = pacs_dropdown_villages
+                        is_pacs_dropdown = True
+                        status(f"[PORTAL] Successfully loaded {len(villages)} PACS-specific dropdown village(s): {', '.join(villages[:5])}...")
+
+            if not villages:
                 raise UnitePortalError(
-                    "PACS ke portal dropdown (Membership -> Personal Details -> + Add) me koi registered village nahi mila.\n"
+                    "PACS ke portal dropdown (Membership -> Personal Details -> + Add) me koi registered village nahi mila aur Auto Assign bhi poora nahi ho saka.\n"
                     "Portal par bina valid dropdown village ke data dalne par sabhi members 'Others' ho jate hain.\n"
                     "Kripya portal par verify karein ki is PACS ke liye gaon register hain ya nahi."
                 )
