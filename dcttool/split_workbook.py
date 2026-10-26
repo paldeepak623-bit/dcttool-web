@@ -274,16 +274,18 @@ def export_sheet_into_upload_template(
             # Special Village Handling: Ensure VillageDescription is NEVER left blank or Others
             if tpl_hdr in ("VillageDescription", "Village", "VillageName", "Village Description"):
                 raw_v = str(src_val or "").strip()
-                if not raw_v or raw_v.lower() in ("none", "null", "others", "--select--", ""):
+                if not raw_v or raw_v.lower() in ("none", "null", "others", "other", "--select--", ""):
                     fallback_v = "Main Village"
                     for r_chk in range(DATA_START_ROW, min(source.max_row + 1, 100)):
                         cv = source.cell(r_chk, src_col).value if src_col else None
-                        if cv and str(cv).strip().lower() not in ("none", "null", "others", "--select--", ""):
+                        if cv and str(cv).strip().lower() not in ("none", "null", "others", "other", "--select--", ""):
                             fallback_v = str(cv).strip()
                             break
                     val = fallback_v
                 else:
                     val = raw_v
+                if val.isupper():
+                    val = val.title()
                 target.cell(out_row, tpl_col, value=val)
                 continue
 

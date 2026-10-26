@@ -48,8 +48,9 @@ def index():
 def api_version():
     return jsonify({
         "status": "online",
-        "version": "2.6.2",
+        "version": "2.6.4",
         "render_resilient": True,
+        "fast_cloud_resilience": True,
         "multi_mandal": True,
         "membership_bulletproof": True,
         "pre_cached_districts": ["Kheri", "Mau", "Budaun"]
@@ -333,6 +334,13 @@ def start_process():
         dropdown_list=tpl_states.get("dropdown_list", False),
     )
 
+    portal_villages_raw = data.get("portal_villages", "")
+    portal_villages = None
+    if isinstance(portal_villages_raw, str) and portal_villages_raw.strip():
+        portal_villages = [v.strip() for v in portal_villages_raw.split(",") if v.strip()]
+    elif isinstance(portal_villages_raw, list):
+        portal_villages = [str(v).strip() for v in portal_villages_raw if str(v).strip()]
+
     settings = MasterSettings(
         seed_path=Path(seed_path),
         url=portal_url or "https://up3.unitetools.in/",
@@ -341,6 +349,7 @@ def start_process():
         pacs_id=pacs_id or ACTIVE_SESSION.get("pacs_id") or "",
         district=district or ACTIVE_SESSION.get("detected_district") or "",
         templates=selection,
+        portal_villages=portal_villages,
     )
 
     try:

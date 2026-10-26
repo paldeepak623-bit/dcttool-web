@@ -57,10 +57,39 @@ def normalize_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+def probe_portal_reachable(url: str, timeout: float = 1.5) -> bool:
+    """Quick 1.5s TCP connection probe to detect if portal port is reachable from this server environment."""
+    import socket
+    from urllib.parse import urlparse
+    try:
+        raw = (url or "").strip()
+        if not raw:
+            return False
+        if not raw.startswith(("http://", "https://")):
+            raw = f"https://{raw}"
+        parsed = urlparse(raw)
+        host = parsed.hostname
+        if not host:
+            return False
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(timeout)
+        sock.connect((host, port))
+        sock.close()
+        return True
+    except Exception:
+        return False
+
+
 class UnitePortalClient:
-    def __init__(self, base_url: str, timeout: int = 15) -> None:
+    def __init__(self, base_url: str, timeout: int | float = 15) -> None:
+        import os
         self.base_url = normalize_url(base_url)
-        self.timeout = timeout
+        is_render = bool(os.environ.get("RENDER")) or "render" in os.environ.get("HOSTNAME", "").lower()
+        if is_render and timeout > 3.0:
+            self.timeout = 2.0
+        else:
+            self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({
             "User-Agent": (
@@ -74,6 +103,7 @@ class UnitePortalClient:
         self.is_logged_in = False
 
     def login(self, username: str, password: str, on_status: Callable[[str], None] | None = None) -> bool:
+        import os
         def status(msg: str) -> None:
             if on_status:
                 on_status(msg)
@@ -81,14 +111,16 @@ class UnitePortalClient:
         status(f"Connecting to portal {self.base_url}...")
         r = None
         last_exc = None
-        for attempt in range(1, 3):
+        is_render = bool(os.environ.get("RENDER")) or "render" in os.environ.get("HOSTNAME", "").lower()
+        max_attempts = 1 if is_render else 2
+        for attempt in range(1, max_attempts + 1):
             try:
                 r = self.session.get(self.base_url, timeout=self.timeout, verify=False)
                 if r.status_code == 200:
                     break
             except Exception as exc:
                 last_exc = exc
-                if attempt < 2:
+                if attempt < max_attempts:
                     status(f"Connecting to portal attempt {attempt} timed out, retrying...")
         if r is None:
             raise UnitePortalError(f"Could not connect to {self.base_url}: {last_exc}") from last_exc

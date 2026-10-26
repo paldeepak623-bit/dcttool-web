@@ -1077,6 +1077,8 @@ async function startExecution() {
     }
   });
 
+  const villagesInput = document.getElementById('portalVillagesInput');
+
   const payload = {
     file_name: currentLoadedFile || (window.currentMasterFile ? window.currentMasterFile.name : ""),
     file_path: (typeof currentLoadedFilePath !== 'undefined' ? currentLoadedFilePath : ""),
@@ -1085,6 +1087,7 @@ async function startExecution() {
     portal_url: portSelect ? portSelect.value : "",
     login_id: loginInput ? loginInput.value.trim() : "",
     password: pwdField ? pwdField.value : "",
+    portal_villages: villagesInput ? villagesInput.value.trim() : "",
     templates: tplStates
   };
 
