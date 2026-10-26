@@ -152,6 +152,8 @@ def export_sheet_into_upload_template(
     source: Worksheet,
     template_path: Path,
     output_path: Path,
+    *,
+    pacs_id: str | None = None,
 ) -> None:
     """Paste master values into bundled portal template (headers unchanged, values only)."""
     tpl_wb = openpyxl.load_workbook(template_path, read_only=False, keep_vba=False)
@@ -178,7 +180,10 @@ def export_sheet_into_upload_template(
                         src_col = sc
                         break
         # Include type columns even if src_col is None so defaults will be applied
-        if src_col is not None or tpl_hdr in ("CustomerTypeDescription", "MemberTypeDescription", "FarmerTypeDescription"):
+        if src_col is not None or tpl_hdr in (
+            "CustomerTypeDescription", "MemberTypeDescription", "FarmerTypeDescription",
+            "BranchId", "PacsIDPKey", "PacsID", "PacsCode", "VillageDescription"
+        ):
             col_mapping.append((tpl_hdr, tpl_col, src_col))
 
     dob_col = src_headers.get("DOB")
@@ -245,9 +250,62 @@ def export_sheet_into_upload_template(
                 target.cell(out_row, tpl_col, value=None)
                 continue
 
+            # Special BranchId Handling: Ensure BranchId is ALWAYS 101 across all templates
+            if tpl_hdr in ("BranchId", "BranchID", "Branch Id", "Branch_Id"):
+                dest = target.cell(out_row, tpl_col, value=101)
+                dest.number_format = "0"
+                continue
+
+            # Special PacsID Handling: Ensure PacsID / PacsIDPKey is NEVER blank across all templates
+            if tpl_hdr in ("PacsIDPKey", "PacsID", "PacsId", "PacsCode", "PacsIDPkey"):
+                raw_pacs = str(src_val or "").strip()
+                if not raw_pacs or raw_pacs.lower() in ("none", "null", ""):
+                    final_pacs = str(pacs_id or "").strip()
+                    if not final_pacs:
+                        from dcttool.sheet_populator import extract_pacs_metadata_from_workbook
+                        _, _, decl_pacs = extract_pacs_metadata_from_workbook(source.parent, fallback_stem="")
+                        final_pacs = decl_pacs or "91351905054001"
+                else:
+                    final_pacs = raw_pacs
+                dest = target.cell(out_row, tpl_col, value=str(final_pacs))
+                dest.number_format = "@"
+                continue
+
+            # Special Village Handling: Ensure VillageDescription is NEVER left blank or Others
+            if tpl_hdr in ("VillageDescription", "Village", "VillageName", "Village Description"):
+                raw_v = str(src_val or "").strip()
+                if not raw_v or raw_v.lower() in ("none", "null", "others", "--select--", ""):
+                    fallback_v = "Main Village"
+                    for r_chk in range(DATA_START_ROW, min(source.max_row + 1, 100)):
+                        cv = source.cell(r_chk, src_col).value if src_col else None
+                        if cv and str(cv).strip().lower() not in ("none", "null", "others", "--select--", ""):
+                            fallback_v = str(cv).strip()
+                            break
+                    val = fallback_v
+                else:
+                    val = raw_v
+                target.cell(out_row, tpl_col, value=val)
+                continue
+
+            # Special LandDetails AdmissionNo: Must strictly be 8-digit zero-padded text (e.g. 00000012)
+            if target.title in ("LandDetails", "Land Details") and tpl_hdr in ("AdmissionNo", "Admission No", "Admission_No"):
+                raw_adm = str(src_val or "").strip()
+                if raw_adm and raw_adm.isdigit():
+                    val = raw_adm.zfill(8)
+                else:
+                    val = raw_adm
+                dest = target.cell(out_row, tpl_col, value=val)
+                dest.number_format = "@"
+                continue
+
+            # Special LandDetails StateName: Always "UTTAR PRADESH"
+            if target.title in ("LandDetails", "Land Details") and tpl_hdr in ("StateName", "State Name"):
+                target.cell(out_row, tpl_col, value="UTTAR PRADESH")
+                continue
+
             # Special Age Handling: Ensure integer age is always populated
             if tpl_hdr == "Age":
-                raw_age = src_cell.value
+                raw_age = src_cell.value if src_cell else None
                 dob_val = parse_date(source.cell(src_row, dob_col).value) if dob_col else None
                 adm_val = parse_date(source.cell(src_row, adm_col).value) if adm_col else None
                 age_val = resolve_age(raw_age, dob_val, adm_val)
@@ -257,7 +315,7 @@ def export_sheet_into_upload_template(
 
             # Special Balance Handling: Ensure numeric values are always preserved and formatted
             if tpl_hdr in ("ShareBalance", "ThriftBalance", "DividentBalance"):
-                raw_bal = src_cell.value
+                raw_bal = src_cell.value if src_cell else None
                 if raw_bal is not None and str(raw_bal).strip() != "":
                     try:
                         dest = target.cell(out_row, tpl_col, value=round(float(raw_bal), 2))
@@ -268,13 +326,16 @@ def export_sheet_into_upload_template(
 
             # Special Value Handling: LoanTransaction CollectedPrincipal must be numeric value
             if tpl_hdr == "CollectedPrincipal":
-                val = src_cell.value
+                val = src_cell.value if src_cell else 0.0
                 try:
                     dest = target.cell(out_row, tpl_col, value=round(float(val), 2))
                     dest.number_format = "0.00"
                 except (ValueError, TypeError):
                     dest = target.cell(out_row, tpl_col, value=0.0)
                     dest.number_format = "0.00"
+                continue
+
+            if src_cell is None:
                 continue
 
             value, date_fmt = _export_value(src_cell.value, header_name=tpl_hdr)
@@ -364,8 +425,18 @@ def export_selected_templates(
     workbook: Workbook,
     output_dir: Path,
     sheet_names: list[str],
+    *,
+    pacs_id: str | None = None,
 ) -> list[Path]:
     from dcttool.sheet_populator import normalize_sheet_title
+    if not pacs_id:
+        try:
+            from dcttool.sheet_populator import extract_pacs_metadata_from_workbook
+            _, _, decl_pacs = extract_pacs_metadata_from_workbook(workbook, fallback_stem="")
+            pacs_id = decl_pacs or "91351905054001"
+        except Exception:
+            pacs_id = "91351905054001"
+
     saved: list[Path] = []
     for sheet_name in sheet_names:
         canon = normalize_sheet_title(sheet_name) or sheet_name
@@ -384,7 +455,7 @@ def export_selected_templates(
             continue
 
         if upload_tpl is not None:
-            export_sheet_into_upload_template(src_sheet, upload_tpl, path)
+            export_sheet_into_upload_template(src_sheet, upload_tpl, path, pacs_id=pacs_id)
         else:
             export_sheet(workbook, src_sheet.title, path, tab_name=tab)
         saved.append(path)

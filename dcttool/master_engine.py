@@ -749,6 +749,7 @@ def save_split_templates(
     *,
     report: SheetDataReport | None = None,
     original_path: Path | None = None,
+    pacs_id: str | None = None,
     on_status: StatusFn | None = None,
 ) -> list[Path]:
     if report is not None:
@@ -760,7 +761,9 @@ def save_split_templates(
     output_dir.mkdir(parents=True, exist_ok=True)
     if original_path is not None:
         from dcttool.sheet_populator import extract_pacs_metadata_from_workbook
-        clean_pacs, _, _ = extract_pacs_metadata_from_workbook(workbook, fallback_stem=original_path.stem)
+        clean_pacs, _, decl_pacs = extract_pacs_metadata_from_workbook(workbook, fallback_stem=original_path.stem)
+        if not pacs_id:
+            pacs_id = decl_pacs
         expected_stem = clean_pacs if clean_pacs and clean_pacs != "PACS" else original_path.stem
         for old_proc in output_dir.glob("*_DCT_Processed.xlsx"):
             if old_proc.name != f"{expected_stem}_DCT_Processed.xlsx":
@@ -769,7 +772,7 @@ def save_split_templates(
                 except Exception:
                     pass
     _status(on_status, f"Saving {len(names)} template file(s) into {output_dir}...")
-    paths = export_selected_templates(workbook, output_dir, names)
+    paths = export_selected_templates(workbook, output_dir, names, pacs_id=pacs_id)
     for p in paths:
         _status(on_status, f"Saved: {p.name}")
     if original_path is not None:

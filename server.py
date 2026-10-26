@@ -48,9 +48,10 @@ def index():
 def api_version():
     return jsonify({
         "status": "online",
-        "version": "2.6.1",
+        "version": "2.6.2",
         "render_resilient": True,
         "multi_mandal": True,
+        "membership_bulletproof": True,
         "pre_cached_districts": ["Kheri", "Mau", "Budaun"]
     })
 
@@ -358,6 +359,7 @@ def start_process():
             selection,
             report=res.report,
             original_path=Path(seed_path),
+            pacs_id=settings.pacs_id or pacs_id,
             on_status=on_status,
         )
 

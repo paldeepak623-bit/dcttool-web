@@ -284,8 +284,9 @@ MEMBERSHIP_HEADER_ALIASES: dict[str, list[str]] = {
     "Address2": ["address2", "address 2"],
     "FatherName": ["fathername", "father name", "father's name", "relative name"],
     "SpouseName": ["spousename", "spouse name", "husband name", "wife name"],
-    "BranchId": ["branchid", "branch id", "branch"],
-    "PacsIDPKey": ["pacsidpkey", "pacs id", "pacsid", "pacs code"],
+    "BranchId": ["branchid", "branch id", "branch", "branch_id", "branchcode", "branch code"],
+    "PacsIDPKey": ["pacsidpkey", "pacs id", "pacsid", "pacs code", "pacscode", "pacs_id", "pacsid_pkey", "pacs_code"],
+    "VillageDescription": ["villagedescription", "village", "village name", "villagename", "village description", "village_name"],
     "AdhaarCardNo": ["adhaarcardno", "aadhaarcardno", "aadharcardno", "aadhaar", "aadhar", "adhaar"],
 }
 
@@ -319,6 +320,40 @@ def _header_map(ws: Worksheet) -> dict[str, int]:
     if "MemberTypeDescription" not in headers and ws.max_column >= 2:
         headers["MemberTypeDescription"] = 2
         ws.cell(HEADER_ROW, 2, value="MemberTypeDescription")
+
+    # Critical guarantees for PacsIDPKey, BranchId, and VillageDescription
+    if "PacsIDPKey" not in headers:
+        for h_name, col_idx in list(headers.items()):
+            if "pacs" in h_name.lower():
+                headers["PacsIDPKey"] = col_idx
+                ws.cell(HEADER_ROW, col_idx, value="PacsIDPKey")
+                break
+        else:
+            new_col = max(ws.max_column + 1, 30)
+            headers["PacsIDPKey"] = new_col
+            ws.cell(HEADER_ROW, new_col, value="PacsIDPKey")
+
+    if "BranchId" not in headers:
+        for h_name, col_idx in list(headers.items()):
+            if "branch" in h_name.lower():
+                headers["BranchId"] = col_idx
+                ws.cell(HEADER_ROW, col_idx, value="BranchId")
+                break
+        else:
+            new_col = max(ws.max_column + 1, 31)
+            headers["BranchId"] = new_col
+            ws.cell(HEADER_ROW, new_col, value="BranchId")
+
+    if "VillageDescription" not in headers:
+        for h_name, col_idx in list(headers.items()):
+            if "village" in h_name.lower():
+                headers["VillageDescription"] = col_idx
+                ws.cell(HEADER_ROW, col_idx, value="VillageDescription")
+                break
+        else:
+            new_col = max(ws.max_column + 1, 22)
+            headers["VillageDescription"] = new_col
+            ws.cell(HEADER_ROW, new_col, value="VillageDescription")
 
     return headers
 
@@ -806,14 +841,14 @@ def process_membership_sheet(
             village_cache[old_village] = assigned_village
         _set_cell(ws, row, headers, "VillageDescription", assigned_village)
 
-        # Rule 11: BranchId = 101
+        # Rule 11: BranchId = 101 (Always guaranteed)
         _set_cell(ws, row, headers, "BranchId", 101, number_format="0")
 
-        # Rule 12: PacsIDPKey = pacs_id (text format)
-        if pacs_id_pkey:
-            clean_pacs = str(pacs_id_pkey).strip()
-            _set_cell(ws, row, headers, "PacsIDPKey", clean_pacs, number_format="@")
-            _set_cell(ws, row, headers, "PacsID", clean_pacs, number_format="@")
+        # Rule 12: PacsIDPKey = pacs_id (text format, always guaranteed)
+        clean_pacs = str(pacs_id_pkey or "91351905054001").strip()
+        _set_cell(ws, row, headers, "PacsIDPKey", clean_pacs, number_format="@")
+        _set_cell(ws, row, headers, "PacsID", clean_pacs, number_format="@")
+        _set_cell(ws, row, headers, "PacsCode", clean_pacs, number_format="@")
 
         # Rule: Aadhaar Card Numbers must be completely cleared/removed (all blank)
         for c_idx in aadhaar_col_indices:
@@ -821,11 +856,22 @@ def process_membership_sheet(
             if cell.value is not None:
                 cell.value = None
 
-        # Rule 13: Fast clearing of columns 32 onward
-        for col_idx in range(32, max_col + 1):
-            cell = ws.cell(row, col_idx)
-            if cell.value is not None:
-                cell.value = None
+        # Rule 13: Safe clearing of unused group/ULB/card columns ONLY (Never wipe protected columns!)
+        protected_headers = {
+            "customertypedescription", "membertypedescription", "admissionno",
+            "membersurname", "membername", "middlename", "fathername", "spousename",
+            "dob", "age", "admissiondate", "genderdescription", "maritalstatusdesc",
+            "communitydescription", "castedescription", "farmertypedescription",
+            "address1", "address2", "villagedescription", "ledgerfoliono", "contactno",
+            "sharebalance", "thriftbalance", "dividentbalance", "pacsidpkey", "pacsid",
+            "pacscode", "branchid", "gpaissuedate", "gpacertificationno", "gpareferenceadmissionno"
+        }
+        for h_name, c_idx in headers.items():
+            clean_h = "".join(c for c in h_name.lower() if c.isalnum())
+            if clean_h not in protected_headers:
+                cell = ws.cell(row, c_idx)
+                if cell.value is not None:
+                    cell.value = None
 
         processed += 1
 
